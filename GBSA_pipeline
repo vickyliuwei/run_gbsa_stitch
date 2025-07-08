@@ -1,5 +1,23 @@
 ## GBSA_pipleline for F2 low-depth sequencing genotypeing
 ## website: https://github.com/yanjunzan/GBSA
+##上游流程
+# 质量控制
+fastp -i input_R1.fastq.gz -I input_R2.fastq.gz -o output_R1.fastq.gz -O output_R2.fastq.gz -h fastp_report.html -j fastp_report.json
+
+# 比对到参考基因组
+bwa mem -t 8 reference.fasta output_R1.fastq.gz output_R2.fastq.gz > output.sam
+
+# 转换SAM到BAM
+samtools view -bS output.sam > output.bam
+
+# 排序BAM文件
+samtools sort -o output.sorted.bam -T temp output.bam
+
+# 去重
+picard MarkDuplicates I=output.sorted.bam O=output.sorted.dedup.bam M=dedup_metrics.txt REMOVE_DUPLICATES=true
+
+# 索引BAM文件
+samtools index output.sorted.dedup.bam
 # (1): clean raw align sequencing data (clean_bam)
 samtools view -bh -q30 -f 0x02 {input} > {output}
 # q30: 过滤掉比对质量（mapping quality）小于30的比对记录
