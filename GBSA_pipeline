@@ -1,0 +1,91 @@
+## GBSA_pipleline for F2 low-depth sequencing genotypeing
+## website: https://github.com/yanjunzan/GBSA
+# (1): clean raw align sequencing data (clean_bam)
+samtools view -bh -q30 -f 0x02 {input} > {output}
+# q30: 过滤掉比对质量（mapping quality）小于30的比对记录
+# 0x02 是一个十六进制的SAM标志码，表示该比对记录是成对比对（paired-end mapping）的一部分，并且两条reads都成功比对到了参考序列
+# (2): get vcf contains each base on genome
+bcftools mpileup -Oz -f ref bam -o vcf.gz
+#输出变异信息
+#CHROM  POS     ID      REF     ALT     QUAL    FILTER  INFO    FORMAT  Sample1
+chr1    100     .       A       T       50      .       DP=10;VDB=0.1;SGB=-0.5;MQ0F=0;AC=1;AN=2;DP4=5,5,0,0;MQ=60  GT:DP:AD:PL  0/1:10:5,5:100,0,100
+chr1    200     .       C       G       30      .       DP=8;VDB=0.2;SGB=-0.6;MQ0F=0;AC=1;AN=2;DP4=3,3,2,2;MQ=55  GT:DP:AD:PL  0/1:8:3,3:90,0,90
+chr2    500     .       G       A       40      .       DP=12;VDB=0.15;SGB=-0.4;MQ0F=0;AC=1;AN=2;DP4=6,6,1,1;MQ=65  GT:DP:AD:PL  0/1:12:6,6:110,0,110
+# (3): trans variant information to proper vcf: vcf.bgz
+python addGenotypeVcf.py -i vcf.gz -o vcf.bgz
+# (4): merge all vcf.bgz (F2 and parents)
+tabix -p vcf sample1.vcf.bgz
+bcftools merge -m pos -Oz -o merged.vcf.gz vcf_folder/*.vcf.bgz
+#根据变异位置（POS 字段）进行合并。
+#作用：如果多个输入文件中存在相同位置的变异记录，则这些记录会被合并为一条记录。合并后的记录会包含所有输入文件中的信息。
+# (5) 获取根据亲本固定分离位点重新编码后的子代基因型 geno_f2 = p1 code:0, geno_f2 = p2 code: 1
+python Read.vcf.py --ID_of "$F2.id" -- H382qinben QX208qinben merged.vcf.gz out_folder
+# (6) run GBSA, need sample name, chrinfo
+Rscript GBSA.R
+##sample name:
+#f2.id
+#id1
+##chr.info:
+#Chr  Size.Mb.
+#Chr  chr_length
+GBSA<- function(cutoffLevel,pedigreeTable,matchingNames,bin.size,pathout){
+  #py.script <- paste(system.file(package="GBSA"),"/read.vcf.grand.p.py",sep="")
+  #all.chr  <- read.table(matchingNames, stringsAsFactors = FALSE, header = TRUE, sep = "\t")
+  all.chr <- matchingNames
+  chroms <- all.chr$INSDC
+  chroms.len <- all.chr$Size.Mb.*1e6
+  ##cut.number <- 20 # cutoff on each bin
+  cut.number <- cutoffLevel
+  #bin.size <- 1e6 # size of each bin
+
+  ## get.info is in Functions.AIL.input.R
+  out.info <- get.info(chroms = chroms, chroms.len = chroms.len, bin.size = bin.size)
+  ## create the big data.frame,  store each row for individual and each col for genotype in a bin
+  f2.id  <- pedigreeTable$id.f2 #gsub(pattern = "(.*)_(S|m).*", replacement = "\\1", x = f2)
+  genotype.hap1 <- data.frame(array(NA, dim = c(length(f2.id), max(out.info$index$end))))
+  rownames(genotype.hap1) <- f2.id
+  colnames(genotype.hap1) <- out.info$chr.loca
+  markers.hap1 <- data.frame(array(NA, dim = c(length(f2.id), max(out.info$index$end))))
+  rownames(markers.hap1) <- f2.id
+  colnames(markers.hap1) <- out.info$chr.loca
+  ## here only hap1 data is stored because hap1+hap2 =1
+  ## 208 is empty
+  # data1List is a list with all the individuals !
+  #data1List <- read_grand.p(pedigreeTable, vcf.file = vcf.file.f2, pathout = outFolder, py = py.script, generate.input = FALSE)
+  # createPath <- function(x){return(paste0(pathout, "/", x, ".vcf"))}
+  # pathList <- lapply(pedigreeTable$id.f2, createPath)
+  all.vcf <- list.files(path =pathout,pattern = ".vcf" )
+
+  for (i in  1:nrow(pedigreeTable)) {
+    #data1 <- data1List[[i]]
+    file_path.now <-  paste0(pathout, "/", all.vcf[i])
+
+    data1 <- readFile(file_path.now)
+    ## loop individual first so we read in each individual only once
+    for (k in 1:length(chroms) ) {
+      chr  <- chroms[k]
+      setkey(data1, chr)
+      data.now <- data1[chr] # extract mrk from this chromsome
+      trac.now <- tracing_physical(input = data.frame(data.now), bin = bin.size, chr.len = chroms.len[k], cut = cut.number)
+      ## location at current loop
+      loca.now <- out.info$loca[out.info$loca.chr == chr]
+      idx.now <- c(out.info$index$start[k]:out.info$index$end[k])
+      index.rep <- idx.now[findInterval(trac.now$loca/bin.size, loca.now)]
+      genotype.hap1[i, index.rep] <- trac.now$f
+      markers.hap1[i, index.rep] <- trac.now$fn
+    }
+    cat("\n", i, "-", pedigreeTable$id.f2[i], "done", "\n")
+  }
+  #dim(genotype.hap1)
+  write.table(genotype.hap1,  file = paste0(pathout,  "Genotype.exact.csv"), quote = FALSE, sep = "\t")
+  write.table(markers.hap1,  file = paste0(pathout,  "Genotype.markers.csv"), quote = FALSE, sep = "\t")
+  return(list("genotype"=genotype.hap1,"num.marker"=markers.hap1))
+}
+#genoCut meangeno
+#(7) Transfering avearaged score to genotype call
+genoCut <- arbitrary.cut(geno = output$genotype, upper.cut = 0.8, lower.cut = 0.2)
+##done
+
+
+
+
