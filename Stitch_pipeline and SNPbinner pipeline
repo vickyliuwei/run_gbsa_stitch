@@ -80,3 +80,5 @@ for (j in 2:24){
          sampleNames_file=smlist, outputdir = temdir, K = 2, nGen = 2, nCores = 10,inputBundleBlockSize = inputBundleBlockSize)
 }
 #done will get vcf file per chr
+#do snpbinner code F2 genotype according Parents fixed loci
+
