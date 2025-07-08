@@ -81,4 +81,12 @@ for (j in 2:24){
 }
 #done will get vcf file per chr
 #do snpbinner code F2 genotype according Parents fixed loci
+#website: https://github.com/solgenomics/snpbinner
+#(1) Convert SNP genotypes to ABH format
+#(2) run SNPbinner
+snpbinner crosspoints --input snp_for_binner_chr1.txt  --output crosspoint_chr1.txt --min-ratio 0.01
+snpbinner bins --input crosspoint_chr1.txt --output bins_5k_chr1.txt --min-bin-size 50000
+#(3) using bins_5k_chr1.txt to do qtl_mapping
+
+
 
