@@ -1,0 +1,82 @@
+#using STITCH to do low-depth sequence data genotype calling
+#website: https://github.com/rwdavies/STITCH
+# get full list of bamfile 
+p_res <- "/mnt/wenjia/jy_bsa/F2/result/resis/"
+p_nres <- "/mnt/wenjia/jy_bsa/F2/result/n_resis/"
+p_f2 <- "/mnt/ext35/ws/yc_qtl/dupbam/"
+resBam <- list.files("/mnt/wenjia/jy_bsa/F2/result/resis/",pattern="nodup.bam$")
+resBam <- paste0(p_res,resBam)
+nonresBam <- list.files("/mnt/wenjia/jy_bsa/F2/result/n_resis/",pattern="dup.bam$")
+
+nonresBam <- paste0(p_nres,nonresBam)
+
+f2Bam <- list.files("/mnt/ext35/ws/yc_qtl/dupbam/",pattern="dup.bam$")
+f2Bam <- paste0(p_f2,f2Bam)
+all.file <- c(resBam,nonresBam,f2Bam)
+#all.file <- c(f2Bam)
+
+##
+
+#all.file <- nonresBam
+## split bam into chr
+path <- "/mnt/ext35/ws/yc_qtl/dupbam_chr/"
+
+chrs <- paste0("Chr",seq(1:24))
+for (j in 18:24){
+  for (i in 90:length(all.file)) {
+    split <- paste("samtools view -b ",all.file[i]," ",chrs[j]," >",path,chrs[j],"_",basename(all.file[i]),sep="")
+    index <- paste("samtools index ",path,chrs[j],"_",basename(all.file[i]),sep="")
+    cat(split,"\n",index,"\n",i,"\n")
+    system(split)
+    system(index)
+  }
+}
+
+# bamlist
+bamList <- list.files("/mnt/ext35/ws/yc_qtl/dupbam_chr/",pattern="dup.bam$")
+
+write.table(paste0("/mnt/ext35/ws/yc_qtl/dupbam_chr/",bamList),file="/mnt/ext35/ws/bamList.txt",quote=F,row.names=F,col.names=F)
+samplename <- gsub(".*_(F2.*\\d+).*","\\1",bamList)
+samplename <- gsub(".*208(F2.*\\d+)_sort.*","\\1",samplename)
+write.table(samplename,file="/mnt/ext35/ws/sampleList.txt",quote=F,row.names=F,col.names=F)
+
+#poslist
+awk 'BEGIN {
+    for (i=1; i<=24; i++) {
+        chr = "Chr"i
+        output[chr] = "/mnt/ext35/ws/" chr ".txt"
+    }
+}
+$1 in output {
+    print $1 "\t" $2 "\t" $3 "\t" $4 > output[$1]
+}' /mnt/ext35/ws/output.txt
+awk '$1 == "Chr1" {print $1"\t"$2"\t"$3"\t"$4}' /mnt/ext35/ws/output.txt > /mnt/ext35/ws/Chr1.txt
+
+#
+
+require("STITCH")
+server_environment <- "server"
+inputBundleBlockSize <- NA
+temdir <- "/mnt/ext35/ws/"
+chrs <- paste0("Chr",seq(1:24))
+bamList <- list.files("/mnt/ext35/ws/yc_qtl/dupbam_chr/",pattern="dup.bam$")
+
+for (j in 2:24){
+  bmlist <- bamList[grepl(paste0(chrs[j],"_"),bamList)]
+  bmlist <- paste0("/mnt/ext35/ws/yc_qtl/dupbam_chr/",bmlist)
+  bmFile <- paste0("/mnt/ext35/ws/yc_qtl/dupbam_chr/",chrs[j],"_bamlist")
+  write.table(bmlist,file=bmFile,quote=F,row.names=F,col.names=F)
+ cat(j,"_",length(bmlist),"\n")
+ 
+  poslist <- paste0("/mnt/ext35/ws/",chrs[j],".txt")
+  
+  samplename <- gsub(".*_(F2.*\\d+).*","\\1",bmlist)
+  samplename <- gsub(".*208(F2.*\\d+)_sort.*","\\1",samplename)
+  smlist <- paste0("/mnt/ext35/ws/",chrs[j],"_sampleList.txt")
+  write.table(samplename,file=smlist,quote=F,row.names=F,col.names=F)
+  
+  STITCH(method = "diploid",tempdir = temdir, chr = chrs[j], bamlist = bmFile,
+         genfile="", posfile = poslist,
+         sampleNames_file=smlist, outputdir = temdir, K = 2, nGen = 2, nCores = 10,inputBundleBlockSize = inputBundleBlockSize)
+}
+#done will get vcf file per chr
