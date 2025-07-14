@@ -33,9 +33,8 @@ chr2    500     .       G       A       40      .       DP=12;VDB=0.15;SGB=-0.4;
 python addGenotypeVcf.py -i vcf.gz -o vcf.bgz
 # (4): merge all vcf.bgz (F2 and parents)
 tabix -p vcf sample1.vcf.bgz
-bcftools merge -m pos -Oz -o merged.vcf.gz vcf_folder/*.vcf.bgz
-#根据变异位置（POS 字段）进行合并。
-#作用：如果多个输入文件中存在相同位置的变异记录，则这些记录会被合并为一条记录。合并后的记录会包含所有输入文件中的信息。
+bcftools merge -m both -Oz -o merged.vcf.gz vcf_folder/*.vcf.bgz
+#作用：合并模式：snps (仅合并 SNP), indels (仅合并 Indel), both (默认合并所有变异)
 # (5) 获取根据亲本固定分离位点重新编码后的子代基因型 geno_f2 = p1 code:0, geno_f2 = p2 code: 1
 python Read.vcf.py --ID_of "$F2.id" -- H382qinben QX208qinben merged.vcf.gz out_folder
 # (6) run GBSA, need sample name, chrinfo
